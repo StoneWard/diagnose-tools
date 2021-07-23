@@ -667,7 +667,8 @@ int diag_activate(const char func[])
 	if ( !strcmp(func, "reboot"))
 		diag_syscall("on");
 
-	os.open("/proc/ali-linux/diagnose/controller", std::ios::out);
+	/// proc接口，实现在 module/entry.c中， 激活 func[] 中对应的工具
+	os.open("/proc/ali-linux/diagnose/controller", std::ios::out); 
 	if (os.is_open()) {
 		os << "activate " << func << endl;
 		os.close();

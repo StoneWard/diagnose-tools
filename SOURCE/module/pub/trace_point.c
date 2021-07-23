@@ -165,7 +165,7 @@ int hook_tracepoint(const char *name, void *probe, void *data)
 	tp = find_tracepoint(name);
 	if (!tp)
 		return 0;
-
+	/// 注册trace_point 的一个钩子函数
 	return tracepoint_probe_register(tp, probe, data);
 }
 

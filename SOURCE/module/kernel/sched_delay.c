@@ -114,7 +114,7 @@ static void trace_sched_wakeup_hit(void *__data, struct task_struct *p, bool unu
 static void trace_sched_wakeup_hit(struct rq *rq, struct task_struct *p, bool unused)
 #endif
 {
-	update_last_queued(p, ktime_to_ms(ktime_get()));
+	update_last_queued(p, ktime_to_ms(ktime_get()));  /// 把当前时间写入到 last_queued 中？
 }
 
 #if KERNEL_VERSION(4, 9, 0) <= LINUX_VERSION_CODE
@@ -131,7 +131,7 @@ static void trace_sched_switch_hit(struct rq *rq, struct task_struct *prev,
 	unsigned long long t_queued;
 	unsigned long long delta = 0;
 	unsigned long long delta_ms;
-	unsigned long long now = ktime_to_ms(ktime_get());
+	unsigned long long now = ktime_to_ms(ktime_get());	/// 获取当前时间
 
 	struct task_struct *leader = next->group_leader ? next->group_leader : next;
 
@@ -151,6 +151,8 @@ static void trace_sched_switch_hit(struct rq *rq, struct task_struct *prev,
 		return;
 	}
 
+	/// 读取上一次的时间？？？
+	// TODO: 分析该函数
 	t_queued = read_last_queued(next);
 	update_last_queued(next, 0);
 	if (t_queued <= 0)
@@ -159,7 +161,7 @@ static void trace_sched_switch_hit(struct rq *rq, struct task_struct *prev,
 	delta = now - t_queued;
 	delta_ms = delta;
 
-	if (delta_ms >= sched_delay_settings.threshold_ms) {
+	if (delta_ms >= sched_delay_settings.threshold_ms) {  /// sched_delay_settings.threshold_ms 是用户设置的最大延迟
 		struct sched_delay_dither *dither;
 		unsigned long flags;
 
@@ -192,12 +194,17 @@ static int __activate_sched_delay(void)
 {
 	int ret = 0;
 
+	/// 为buffer申请内存，buffer具体作用后续在分析
 	ret = alloc_diag_variant_buffer(&sched_delay_variant_buffer);
 	if (ret)
 		goto out_variant_buffer;
 	sched_delay_alloced = 1;
 
+	/// 为 sched_switch trace_point 点，挂钩子函数
+	/// 该点表示线程被切换走了
 	hook_tracepoint("sched_switch", trace_sched_switch_hit, NULL);
+	/// 为 sched_wakeup trace_point 点，挂钩子函数
+	/// 该点表示线程被唤醒了
 	hook_tracepoint("sched_wakeup", trace_sched_wakeup_hit, NULL);
 
 	return 1;
@@ -333,6 +340,7 @@ long diag_ioctl_sched_delay(unsigned int cmd, unsigned long arg)
 
 	switch (cmd) {
 	case CMD_SCHED_DELAY_SET:
+		/// 保存在全局变量 sched_delay_settings 中
 		if (sched_delay_settings.activated) {
 			ret = -EBUSY;
 		} else {

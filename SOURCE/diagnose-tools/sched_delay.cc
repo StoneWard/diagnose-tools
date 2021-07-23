@@ -80,6 +80,8 @@ static void do_activate(const char *arg)
 	}
 
 	if (run_in_host) {
+		/// 调用 /dev/diagnose-tools 设备驱动的 ioctl 接口，
+		/// 这里会进一步调用 diag_ioctl_sched_delay() ,在 module/kernel/sched_delay.c中，将设置的参数传给内核
 		ret = diag_call_ioctl(DIAG_IOCTL_SCHED_DELAY_SET, (long)&settings);
 	} else {
 		ret = -ENOSYS;
@@ -95,6 +97,8 @@ static void do_activate(const char *arg)
 	if (ret)
 		return;
 
+	/// 这里通过 /proc 接口，激活sched-delay，
+	/// 调用 module/kernel/sched_delay.c 中的 activate_sched_delay()
 	ret = diag_activate("sched-delay");
 	if (ret == 1) {
 		printf("sched-delay activated\n");
