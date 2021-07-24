@@ -106,6 +106,38 @@ static int diag_sched_delay_id;
 static int sched_delay_seq;
 static struct diag_variant_buffer sched_delay_variant_buffer;
 
+
+
+/*
+ * Explanation of delta-time stats:
+ *
+ *            t = time of current schedule out event
+ *        tprev = time of previous sched out event
+ *                also time of schedule-in event for current task
+ *    last_time = time of last sched change event for current task
+ *                (i.e, time process was last scheduled out)
+ * ready_to_run = time of wakeup for current task
+ *
+ * -----|------------|------------|------------|------
+ *    last         ready        tprev          t
+ *    time         to run
+ *
+ *      |-------- dt_wait --------|
+ *                   |- dt_delay -|-- dt_run --|
+ *
+ *   dt_run = run time of current task
+ *  dt_wait = time between last schedule out event for task and tprev
+ *            represents time spent off the cpu
+ * dt_delay = time between wakeup and schedule-in of task
+*/
+
+/// 任务切换过程：
+/// 先尝试唤醒目标任务，这里记录时间， sched_wakeup
+/// 然后调度器开始工作，如果下一任务不是目标任务，则直接返回（执行新任务而不统计时间）
+/// 	直到切换的下一个任务为目标任务时，记录时间， sched_switch
+/// 从 sched_wakeup --> sched_switch 的时间，
+/// 是尝试唤醒目标线程，到真正切换到目标线程所消耗的时间，即，调度延迟。
+
 #if KERNEL_VERSION(4, 9, 0) <= LINUX_VERSION_CODE
 static void trace_sched_wakeup_hit(void *__data, struct task_struct *p)
 #elif KERNEL_VERSION(3, 10, 0) <= LINUX_VERSION_CODE
@@ -114,7 +146,7 @@ static void trace_sched_wakeup_hit(void *__data, struct task_struct *p, bool unu
 static void trace_sched_wakeup_hit(struct rq *rq, struct task_struct *p, bool unused)
 #endif
 {
-	update_last_queued(p, ktime_to_ms(ktime_get()));  /// 把当前时间写入到 last_queued 中？
+	update_last_queued(p, ktime_to_ms(ktime_get()));  /// 记录开始唤醒目标线程的时刻，记录到 last_qeuued 中
 }
 
 #if KERNEL_VERSION(4, 9, 0) <= LINUX_VERSION_CODE
@@ -131,7 +163,7 @@ static void trace_sched_switch_hit(struct rq *rq, struct task_struct *prev,
 	unsigned long long t_queued;
 	unsigned long long delta = 0;
 	unsigned long long delta_ms;
-	unsigned long long now = ktime_to_ms(ktime_get());	/// 获取当前时间
+	unsigned long long now = ktime_to_ms(ktime_get());	/// 获取当前时间（切换到目标线程的时刻）
 
 	struct task_struct *leader = next->group_leader ? next->group_leader : next;
 
@@ -143,22 +175,22 @@ static void trace_sched_switch_hit(struct rq *rq, struct task_struct *prev,
 			return;
 	}
 
-	if (sched_delay_settings.tgid && leader->pid != sched_delay_settings.tgid) {
+	if (sched_delay_settings.tgid && leader->pid != sched_delay_settings.tgid) {  /// 判断进程是否是目标进程
 		return;
 	}
 
-	if (sched_delay_settings.pid && next->pid != sched_delay_settings.pid) {
+	if (sched_delay_settings.pid && next->pid != sched_delay_settings.pid) {  /// 判断新线程是否是目标线程
 		return;
 	}
 
 	/// 读取上一次的时间？？？
 	// TODO: 分析该函数
-	t_queued = read_last_queued(next);
-	update_last_queued(next, 0);
-	if (t_queued <= 0)
+	t_queued = read_last_queued(next);  /// 读取上一次目标线程被唤醒的时间
+	update_last_queued(next, 0); /// 将目标线程中记录的时间清零
+	if (t_queued <= 0) //? unsigned long long 类型的数据... 应该不会小于0？
 		return;
 
-	delta = now - t_queued;
+	delta = now - t_queued;  //? 当前时间 - 目标线程被唤醒的时间
 	delta_ms = delta;
 
 	if (delta_ms >= sched_delay_settings.threshold_ms) {  /// sched_delay_settings.threshold_ms 是用户设置的最大延迟
@@ -201,10 +233,10 @@ static int __activate_sched_delay(void)
 	sched_delay_alloced = 1;
 
 	/// 为 sched_switch trace_point 点，挂钩子函数
-	/// 该点表示线程被切换走了
+	/// 该点表示准备切换到新线程
 	hook_tracepoint("sched_switch", trace_sched_switch_hit, NULL);
 	/// 为 sched_wakeup trace_point 点，挂钩子函数
-	/// 该点表示线程被唤醒了
+	/// 该点表示新线程被唤醒了
 	hook_tracepoint("sched_wakeup", trace_sched_wakeup_hit, NULL);
 
 	return 1;
